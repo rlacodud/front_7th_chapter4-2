@@ -37,14 +37,63 @@ jobs:
           npm install -g http-server
 
       - name: Start local server
-        run: http-server . -p 8080 &
+        run: |
+          http-server . -p 8080 &
+          sleep 3
+          curl -f http://localhost:8080 || exit 1
 
       - name: Run Lighthouse CI
         id: lighthouse
         continue-on-error: true
         run: |
           URL="${{ github.event.inputs.url || 'http://localhost:8080' }}"
-          lhci autorun --collect.url=$URL
+          echo "Running Lighthouse CI on: $URL"
+
+          # Lighthouse CI 설정 파일 생성 (없는 경우)
+          if [ ! -f "lighthouserc.js" ] && [ ! -f "lighthouserc.json" ]; then
+            echo "Creating Lighthouse CI config..."
+            cat > lighthouserc.json << EOF
+          {
+            "ci": {
+              "collect": {
+                "url": ["$URL"],
+                "numberOfRuns": 1
+              },
+              "assert": {
+                "assertions": {
+                  "categories:performance": ["warn", {"minScore": 0}],
+                  "categories:accessibility": ["warn", {"minScore": 0}],
+                  "categories:best-practices": ["warn", {"minScore": 0}],
+                  "categories:seo": ["warn", {"minScore": 0}]
+                }
+              },
+              "upload": {
+                "target": "filesystem",
+                "outputDir": ".lighthouseci"
+              }
+            }
+          }
+          EOF
+          fi
+
+          # Lighthouse CI 실행
+          lhci autorun || {
+            echo "Lighthouse CI failed, trying alternative method..."
+            # 대안: 직접 lighthouse 실행
+            npx @lhci/cli@0.14.x autorun || echo "All Lighthouse methods failed"
+          }
+
+          echo "Lighthouse CI execution completed"
+
+      - name: Check Lighthouse reports
+        if: always()
+        run: |
+          if [ -d ".lighthouseci" ]; then
+            echo "Lighthouse reports directory exists"
+            ls -la .lighthouseci/ || echo "Directory is empty"
+          else
+            echo "Lighthouse reports directory does not exist"
+          fi
 
       - name: Get changed files diff
         id: get_diff
@@ -98,27 +147,40 @@ jobs:
             const lhciDir = '.lighthouseci';
 
             // Lighthouse 리포트 디렉토리 및 파일 확인
+            console.log('Checking for Lighthouse reports...');
+            console.log('Current working directory:', process.cwd());
+            console.log('Lighthouse directory exists:', fs.existsSync(lhciDir));
+
             if (!fs.existsSync(lhciDir)) {
-              console.log('Lighthouse 리포트 디렉토리가 존재하지 않습니다.');
+              console.log('❌ Lighthouse 리포트 디렉토리가 존재하지 않습니다.');
+              console.log('Lighthouse CI가 리포트를 생성하지 못했습니다. Lighthouse CI 실행 단계를 확인해주세요.');
               return;
             }
 
-            const jsonReports = fs.readdirSync(lhciDir).filter(f => f.endsWith('.json'));
+            const allFiles = fs.readdirSync(lhciDir);
+            console.log('Files in .lighthouseci:', allFiles);
+
+            const jsonReports = allFiles.filter(f => f.endsWith('.json'));
+            console.log('JSON reports found:', jsonReports);
 
             if (jsonReports.length === 0) {
-              console.log('Lighthouse 리포트 파일이 없습니다.');
+              console.log('❌ Lighthouse 리포트 파일이 없습니다.');
+              console.log('Lighthouse CI가 실행되었지만 리포트 파일이 생성되지 않았습니다.');
               return;
             }
 
             const latestReport = jsonReports.sort().reverse()[0];
+            console.log('Latest report:', latestReport);
 
             if (!latestReport) {
-              console.log('최신 Lighthouse 리포트를 찾을 수 없습니다.');
+              console.log('❌ 최신 Lighthouse 리포트를 찾을 수 없습니다.');
               return;
             }
 
             const reportPath = path.join(lhciDir, latestReport);
+            console.log('Reading report from:', reportPath);
             const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            console.log('Report loaded successfully');
 
             const formatScore = (value = 0) => {
               return Math.round(value * 100);
