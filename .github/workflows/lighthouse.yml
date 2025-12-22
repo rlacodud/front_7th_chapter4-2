@@ -96,8 +96,27 @@ jobs:
             }
 
             const lhciDir = '.lighthouseci';
+
+            // Lighthouse 리포트 디렉토리 및 파일 확인
+            if (!fs.existsSync(lhciDir)) {
+              console.log('Lighthouse 리포트 디렉토리가 존재하지 않습니다.');
+              return;
+            }
+
             const jsonReports = fs.readdirSync(lhciDir).filter(f => f.endsWith('.json'));
+
+            if (jsonReports.length === 0) {
+              console.log('Lighthouse 리포트 파일이 없습니다.');
+              return;
+            }
+
             const latestReport = jsonReports.sort().reverse()[0];
+
+            if (!latestReport) {
+              console.log('최신 Lighthouse 리포트를 찾을 수 없습니다.');
+              return;
+            }
+
             const reportPath = path.join(lhciDir, latestReport);
             const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
 
