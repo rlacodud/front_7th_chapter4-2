@@ -59,14 +59,6 @@ jobs:
                 "url": ["$URL"],
                 "numberOfRuns": 1
               },
-              "assert": {
-                "assertions": {
-                  "categories:performance": ["warn", {"minScore": 0}],
-                  "categories:accessibility": ["warn", {"minScore": 0}],
-                  "categories:best-practices": ["warn", {"minScore": 0}],
-                  "categories:seo": ["warn", {"minScore": 0}]
-                }
-              },
               "upload": {
                 "target": "filesystem",
                 "outputDir": ".lighthouseci"
@@ -154,6 +146,7 @@ jobs:
             if (!fs.existsSync(lhciDir)) {
               console.log('❌ Lighthouse 리포트 디렉토리가 존재하지 않습니다.');
               console.log('Lighthouse CI가 리포트를 생성하지 못했습니다. Lighthouse CI 실행 단계를 확인해주세요.');
+              console.log('Issue를 생성하지 않고 종료합니다.');
               return;
             }
 
@@ -166,6 +159,8 @@ jobs:
             if (jsonReports.length === 0) {
               console.log('❌ Lighthouse 리포트 파일이 없습니다.');
               console.log('Lighthouse CI가 실행되었지만 리포트 파일이 생성되지 않았습니다.');
+              console.log('Available files:', allFiles);
+              console.log('Issue를 생성하지 않고 종료합니다.');
               return;
             }
 
@@ -292,10 +287,20 @@ jobs:
               ? `📊 ${commitTitle} - ${timeStr}`
               : `📊 웹사이트 성능 측정 결과 - ${timeStr}`;
 
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: issueTitle,
-              body: body,
-              labels: ['lighthouse-audit', 'web-vitals']
-            });
+            console.log('Creating issue with title:', issueTitle);
+            console.log('Repository:', context.repo.owner, context.repo.repo);
+
+            try {
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issueTitle,
+                body: body,
+                labels: ['lighthouse-audit', 'web-vitals']
+              });
+              console.log('✅ Issue created successfully:', issue.data.html_url);
+            } catch (error) {
+              console.error('❌ Failed to create issue:', error.message);
+              console.error('Error details:', JSON.stringify(error, null, 2));
+              throw error;
+            }
