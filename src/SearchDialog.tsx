@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   Box,
   Button,
@@ -34,17 +34,8 @@ import { Lecture } from "./types.ts";
 import { parseSchedule } from "./utils.ts";
 import { DAY_LABELS } from "./constants.ts";
 import { useLectures } from "./hooks/useLectures.ts";
-
-interface SearchOption {
-  query?: string;
-  grades: number[];
-  days: string[];
-  times: number[];
-  majors: string[];
-  credits?: number;
-}
-
-const PAGE_SIZE = 100;
+import { useFilteredLectures } from "./hooks/useFilteredLectures.ts";
+import { SearchOption } from "./utils/filterLectures.ts";
 
 interface Props {
   searchInfo: {
@@ -100,79 +91,13 @@ const SearchDialog = ({ searchInfo, onClose }: Props) => {
     majors: [],
   });
 
-  // 필터링된 강의 목록 계산
-  const filteredLectures = useMemo(() => {
-    const { query = "", credits, grades, days, times, majors } = searchOptions;
-    const queryLower = query.toLowerCase();
-
-    return lectures.filter((lecture) => {
-      // 검색어 필터
-      if (
-        query &&
-        !lecture.title.toLowerCase().includes(queryLower) &&
-        !lecture.id.toLowerCase().includes(queryLower)
-      ) {
-        return false;
-      }
-
-      // 학년 필터
-      if (grades.length > 0 && !grades.includes(lecture.grade)) {
-        return false;
-      }
-
-      // 전공 필터
-      if (majors.length > 0 && !majors.includes(lecture.major)) {
-        return false;
-      }
-
-      // 학점 필터
-      if (credits && !lecture.credits.startsWith(String(credits))) {
-        return false;
-      }
-
-      // 요일 필터
-      if (days.length > 0) {
-        const schedules = lecture.schedule
-          ? parseSchedule(lecture.schedule)
-          : [];
-        if (!schedules.some((s) => days.includes(s.day))) {
-          return false;
-        }
-      }
-
-      // 시간 필터
-      if (times.length > 0) {
-        const schedules = lecture.schedule
-          ? parseSchedule(lecture.schedule)
-          : [];
-        if (
-          !schedules.some((s) => s.range.some((time) => times.includes(time)))
-        ) {
-          return false;
-        }
-      }
-
-      return true;
+  // 필터링 및 페이지네이션을 처리하는 커스텀 훅 사용
+  const { filteredLectures, visibleLectures, allMajors, lastPage } =
+    useFilteredLectures({
+      lectures,
+      searchOptions,
+      page,
     });
-  }, [lectures, searchOptions]);
-
-  // 전체 페이지 수 계산
-  const lastPage = useMemo(
-    () => Math.ceil(filteredLectures.length / PAGE_SIZE),
-    [filteredLectures.length]
-  );
-
-  // 현재 페이지에 보이는 강의 목록
-  const visibleLectures = useMemo(
-    () => filteredLectures.slice(0, page * PAGE_SIZE),
-    [filteredLectures, page]
-  );
-
-  // 모든 전공 목록
-  const allMajors = useMemo(
-    () => [...new Set(lectures.map((lecture) => lecture.major))],
-    [lectures]
-  );
 
   const changeSearchOption = useCallback(
     (field: keyof SearchOption, value: SearchOption[typeof field]) => {
@@ -464,4 +389,14 @@ const SearchDialog = ({ searchInfo, onClose }: Props) => {
   );
 };
 
-export default SearchDialog;
+// React.memo로 컴포넌트 메모이제이션하여 불필요한 리렌더링 방지
+export default memo(SearchDialog, (prevProps, nextProps) => {
+  // searchInfo가 변경되지 않았으면 리렌더링 방지
+  if (
+    prevProps.searchInfo === nextProps.searchInfo &&
+    prevProps.onClose === nextProps.onClose
+  ) {
+    return true; // props가 같으면 리렌더링 안 함
+  }
+  return false; // props가 다르면 리렌더링
+});
