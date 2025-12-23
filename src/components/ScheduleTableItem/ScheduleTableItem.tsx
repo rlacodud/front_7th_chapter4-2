@@ -42,13 +42,20 @@ export const ScheduleTableItem = memo(
       [tableId, onSearchInfoChange]
     );
 
+    const handleHeaderSearchInfoChange = useCallback(
+      (tableId: string) => {
+        onSearchInfoChange({ tableId });
+      },
+      [onSearchInfoChange]
+    );
+
     return (
       <Stack width="600px">
         <TableHeader
           index={index}
           tableId={tableId}
           disabledRemoveButton={disabledRemoveButton}
-          onSearchInfoChange={onSearchInfoChange}
+          onSearchInfoChange={handleHeaderSearchInfoChange}
           onDuplicate={onDuplicate}
           onRemove={onRemove}
         />
