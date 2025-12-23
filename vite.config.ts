@@ -1,14 +1,10 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 
 export default defineConfig({
   plugins: [react()],
   build: {
     minify: "esbuild",
-    // esbuild는 기본적으로 console.log를 제거하지 않으므로, 별도 설정 필요
-    esbuild: {
-      drop: ["console", "debugger"],
-    },
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -37,13 +33,8 @@ export default defineConfig({
     },
     chunkSizeWarningLimit: 1000,
   },
-  test: {
-    globals: true,
-    environment: "jsdom",
-    setupFiles: "./src/setupTests.ts",
-    coverage: {
-      reportsDirectory: "./.coverage",
-      reporter: ["lcov", "json", "json-summary"],
-    },
+  esbuild: {
+    // esbuild는 기본적으로 console.log를 제거하지 않으므로, 별도 설정 필요
+    drop: ["console", "debugger"],
   },
 });
