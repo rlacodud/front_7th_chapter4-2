@@ -52,12 +52,14 @@ export const ScheduleTables = () => {
           );
         })}
       </Flex>
-      <Suspense fallback={null}>
-        <SearchDialog
-          searchInfo={searchInfo}
-          onClose={handleCloseSearchDialog}
-        />
-      </Suspense>
+      {searchInfo && (
+        <Suspense fallback={null}>
+          <SearchDialog
+            searchInfo={searchInfo}
+            onClose={handleCloseSearchDialog}
+          />
+        </Suspense>
+      )}
     </>
   );
 };
