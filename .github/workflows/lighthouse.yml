@@ -6,29 +6,48 @@ on:
       - main
   workflow_dispatch:
     inputs:
+      commit_id:
+        description: "커밋 ID (SHA) - 해당 커밋 기준으로 빌드 및 성능 검사 (비워두면 최신 커밋 사용)"
+        required: false
+        default: ""
       url:
-        description: "URL to run Lighthouse on"
+        description: "URL to run Lighthouse on (leave empty to use GitHub Pages URL)"
         required: false
-        default: "http://localhost:8080"
+        default: ""
       commit_message:
-        description: "커밋 메시지 (Issue 제목에 사용됩니다)"
+        description: "커밋 메시지 (Issue 제목에 사용됩니다, 비워두면 선택한 커밋의 메시지 사용)"
         required: false
-        default: "Manual workflow run"
+        default: ""
 
 permissions:
   issues: write
-  contents: read
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
-  lighthouse-audit:
-    name: Lighthouse Audit
+  deploy:
+    name: Deploy to GitHub Pages
     runs-on: ubuntu-latest
     # 커밋 메시지에 'perf'가 포함된 경우에만 실행
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'perf')
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # 전체 히스토리를 가져와서 diff를 위해 필요
+          ref: ${{ github.event.inputs.commit_id || github.sha }}
+
+      - name: Checkout specific commit
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.commit_id != ''
+        run: |
+          COMMIT_ID="${{ github.event.inputs.commit_id }}"
+          echo "Checking out commit: $COMMIT_ID"
+          git checkout $COMMIT_ID
+          echo "Current commit: $(git rev-parse HEAD)"
+          echo "Commit message: $(git log -1 --pretty=%B)"
 
       - name: Use Node.js 20
         uses: actions/setup-node@v4
@@ -37,35 +56,135 @@ jobs:
 
       - name: Install dependencies & build app
         run: |
-          # Lighthouse CLI & static server 설치
-          npm install -g @lhci/cli@0.14.x http-server pnpm
-
-          # 프로젝트 의존성 설치 및 빌드 (pnpm.lock 기반)
+          npm install -g pnpm
           pnpm install --frozen-lockfile
           pnpm run build
 
-      - name: Start local server (serve built dist)
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./dist"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  restore-latest:
+    name: Restore Latest Commit (if needed)
+    runs-on: ubuntu-latest
+    needs: lighthouse-audit
+    # workflow_dispatch에서 과거 커밋으로 배포한 경우에만 최신 커밋으로 복구
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.commit_id != ''
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies & build app
         run: |
-          http-server dist -p 8080 &
-          sleep 5
-          curl -f http://localhost:8080 || exit 1
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./dist"
+
+      - name: Deploy to GitHub Pages (restore latest)
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  lighthouse-audit:
+    name: Lighthouse Audit
+    runs-on: ubuntu-latest
+    needs: deploy
+    # 커밋 메시지에 'perf'가 포함된 경우에만 실행
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'perf')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 전체 히스토리를 가져와서 diff를 위해 필요
+          ref: ${{ github.event.inputs.commit_id || github.sha }}
+
+      - name: Checkout specific commit
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.commit_id != ''
+        run: |
+          COMMIT_ID="${{ github.event.inputs.commit_id }}"
+          echo "Checking out commit: $COMMIT_ID"
+          git checkout $COMMIT_ID
+          echo "Current commit: $(git rev-parse HEAD)"
+          echo "Commit message: $(git log -1 --pretty=%B)"
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Lighthouse CI
+        run: |
+          npm install -g @lhci/cli@0.14.x pnpm
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for GitHub Pages deployment to be ready..."
+          sleep 30
+          echo "Deployment should be ready now"
 
       - name: Run Lighthouse CI
         id: lighthouse
         continue-on-error: true
         run: |
-          URL="${{ github.event.inputs.url || 'http://localhost:8080' }}"
+          # GitHub Pages URL 구성
+          # github.repository 형식: owner/repo-name
+          REPO_NAME="${{ github.event.repository.name }}"
+          GITHUB_PAGES_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/"
+
+          # workflow_dispatch에서 URL이 입력된 경우 해당 URL 사용, 아니면 GitHub Pages URL 사용
+          if [ -n "${{ github.event.inputs.url }}" ]; then
+            URL="${{ github.event.inputs.url }}"
+          else
+            URL="$GITHUB_PAGES_URL"
+          fi
+
+          echo "Target URL: $URL"
           echo "Running Lighthouse CI on: $URL"
 
-          # Lighthouse CI 설정 파일 생성 (없는 경우)
-          if [ ! -f "lighthouserc.js" ] && [ ! -f "lighthouserc.json" ]; then
-            echo "Creating Lighthouse CI config..."
-            cat > lighthouserc.json << EOF
+          # URL 접근 가능 여부 확인
+          for i in {1..10}; do
+            if curl -f -s "$URL" > /dev/null; then
+              echo "✅ URL is accessible: $URL"
+              break
+            else
+              echo "⏳ Waiting for deployment... ($i/10)"
+              sleep 10
+            fi
+          done
+
+          # Lighthouse CI 설정 파일 생성
+          cat > lighthouserc.json << EOF
           {
             "ci": {
               "collect": {
                 "url": ["$URL"],
-                "numberOfRuns": 1
+                "numberOfRuns": 1,
+                "settings": {
+                  "skipAudits": []
+                }
               },
               "upload": {
                 "target": "filesystem",
@@ -74,12 +193,10 @@ jobs:
             }
           }
           EOF
-          fi
 
           # Lighthouse CI 실행
           lhci autorun || {
             echo "Lighthouse CI failed, trying alternative method..."
-            # 대안: 직접 lighthouse 실행
             npx @lhci/cli@0.14.x autorun || echo "All Lighthouse methods failed"
           }
 
@@ -97,12 +214,27 @@ jobs:
 
       - name: Get changed files diff
         id: get_diff
-        if: always() && github.event_name == 'push'
+        if: always()
         run: |
-          if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            git diff ${{ github.event.before }}..${{ github.sha }} > /tmp/changes.diff || echo "No changes" > /tmp/changes.diff
+          if [ "${{ github.event_name }}" == "push" ]; then
+            # push 이벤트: 이전 커밋과 현재 커밋 간의 diff
+            if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+              git diff ${{ github.event.before }}..${{ github.sha }} > /tmp/changes.diff || echo "No changes" > /tmp/changes.diff
+            else
+              echo "Initial commit or no previous commit" > /tmp/changes.diff
+            fi
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.commit_id }}" ]; then
+            # workflow_dispatch + commit_id 입력: 해당 커밋과 이전 커밋 간의 diff
+            COMMIT_ID="${{ github.event.inputs.commit_id }}"
+            PARENT_COMMIT=$(git rev-parse ${COMMIT_ID}^ 2>/dev/null || echo "")
+            if [ -n "$PARENT_COMMIT" ]; then
+              git diff ${PARENT_COMMIT}..${COMMIT_ID} > /tmp/changes.diff || echo "No changes" > /tmp/changes.diff
+            else
+              echo "Initial commit or no parent commit" > /tmp/changes.diff
+            fi
           else
-            echo "Initial commit or no previous commit" > /tmp/changes.diff
+            # workflow_dispatch without commit_id: diff 없음
+            echo "No diff available" > /tmp/changes.diff
           fi
 
       - name: Create GitHub Issue with Results
@@ -120,8 +252,23 @@ jobs:
             if (context.eventName === 'push') {
               commitMessage = context.payload.head_commit?.message || 'No commit message';
             } else if (context.eventName === 'workflow_dispatch') {
-              // workflow_dispatch일 때는 입력값 사용
-              commitMessage = context.payload.inputs?.commit_message || 'Manual workflow run';
+              const commitId = context.payload.inputs?.commit_id;
+              const inputCommitMessage = context.payload.inputs?.commit_message;
+              
+              if (commitId && !inputCommitMessage) {
+                // commit_id가 있고 커밋 메시지가 입력되지 않았으면 해당 커밋의 메시지 사용
+                try {
+                  const { execSync } = require('child_process');
+                  commitMessage = execSync(`git log -1 --pretty=%B ${commitId}`, { encoding: 'utf8' }).trim();
+                } catch (e) {
+                  commitMessage = `Commit ${commitId.substring(0, 7)}`;
+                }
+              } else if (inputCommitMessage) {
+                // 커밋 메시지가 입력되었으면 사용
+                commitMessage = inputCommitMessage;
+              } else {
+                commitMessage = 'Manual workflow run';
+              }
             } else {
               commitMessage = 'Manual workflow run';
             }
@@ -129,25 +276,27 @@ jobs:
 
             // 변경된 코드 가져오기
             let codeChanges = '';
-            if (context.eventName === 'push') {
-              try {
-                const diffPath = '/tmp/changes.diff';
-                if (fs.existsSync(diffPath)) {
-                  const diffContent = fs.readFileSync(diffPath, 'utf8');
-                  if (diffContent && !diffContent.includes('No changes') && !diffContent.includes('Initial commit')) {
-                    // diff가 너무 길면 잘라내기 (GitHub Issue는 65,536자 제한)
-                    const maxLength = 50000;
-                    let formattedDiff = diffContent;
-                    if (diffContent.length > maxLength) {
-                      formattedDiff = diffContent.substring(0, maxLength) + '\n\n... (truncated due to length)';
-                    }
-                    // diff를 코드 블록으로 포맷팅
-                    codeChanges = `\n### 📝 변경된 코드\n\n\`\`\`diff\n${formattedDiff}\n\`\`\`\n`;
+            try {
+              const diffPath = '/tmp/changes.diff';
+              if (fs.existsSync(diffPath)) {
+                const diffContent = fs.readFileSync(diffPath, 'utf8');
+                if (diffContent && 
+                    !diffContent.includes('No changes') && 
+                    !diffContent.includes('Initial commit') && 
+                    !diffContent.includes('No diff available') &&
+                    !diffContent.includes('no parent commit')) {
+                  // diff가 너무 길면 잘라내기 (GitHub Issue는 65,536자 제한)
+                  const maxLength = 50000;
+                  let formattedDiff = diffContent;
+                  if (diffContent.length > maxLength) {
+                    formattedDiff = diffContent.substring(0, maxLength) + '\n\n... (truncated due to length)';
                   }
+                  // diff를 코드 블록으로 포맷팅
+                  codeChanges = `\n### 📝 변경된 코드\n\n\`\`\`diff\n${formattedDiff}\n\`\`\`\n`;
                 }
-              } catch (e) {
-                console.log('Could not read diff:', e.message);
               }
+            } catch (e) {
+              console.log('Could not read diff:', e.message);
             }
 
             const lhciDir = '.lighthouseci';
@@ -333,9 +482,18 @@ jobs:
               hour12: false
             });
 
+            // 커밋 정보 추가
+            const commitId = context.payload.inputs?.commit_id;
+            let commitInfo = '';
+            if (commitId) {
+              const shortCommitId = commitId.substring(0, 7);
+              const commitUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${commitId}`;
+              commitInfo = `\n### 📌 측정 기준 커밋\n- **커밋 ID**: [\`${shortCommitId}\`](${commitUrl})\n- **커밋 메시지**: ${commitTitle}\n\n`;
+            }
+
             const body = `## 🚨 웹사이트 성능 측정 결과
 
-            ${codeChanges}
+            ${commitInfo}${codeChanges}
 
             ### 🎯 Lighthouse 점수
             | 카테고리 | 점수 | 상태 |
@@ -372,11 +530,24 @@ jobs:
             > 📅 측정 시간: ${timeStr}`;
 
             // Issue 제목: 커밋 메시지 제목 + 시간
-            // workflow_dispatch에서 커밋 메시지가 입력된 경우에도 사용
-            const issueTitle = (context.eventName === 'push' || 
-                               (context.eventName === 'workflow_dispatch' && commitTitle !== 'Manual workflow run'))
-              ? `📊 ${commitTitle} - ${timeStr}`
-              : `📊 웹사이트 성능 측정 결과 - ${timeStr}`;
+            // workflow_dispatch에서 커밋 메시지가 입력되었거나 commit_id가 있는 경우 사용
+            const commitId = context.payload.inputs?.commit_id;
+            let issueTitle;
+            if (context.eventName === 'push') {
+              issueTitle = `📊 ${commitTitle} - ${timeStr}`;
+            } else if (context.eventName === 'workflow_dispatch') {
+              if (commitId) {
+                // commit_id가 있으면 커밋 정보 포함
+                const shortCommitId = commitId.substring(0, 7);
+                issueTitle = `📊 ${commitTitle} (${shortCommitId}) - ${timeStr}`;
+              } else if (commitTitle !== 'Manual workflow run') {
+                issueTitle = `📊 ${commitTitle} - ${timeStr}`;
+              } else {
+                issueTitle = `📊 웹사이트 성능 측정 결과 - ${timeStr}`;
+              }
+            } else {
+              issueTitle = `📊 웹사이트 성능 측정 결과 - ${timeStr}`;
+            }
 
             console.log('Creating issue with title:', issueTitle);
             console.log('Repository:', context.repo.owner, context.repo.repo);
