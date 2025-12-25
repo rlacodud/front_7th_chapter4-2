@@ -71,11 +71,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Git 설정
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global init.defaultBranch main
+
           # gh-pages 브랜치에 직접 푸시 (gh-pages 패키지 대신 직접 git 사용)
           cd dist
           git init
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           git checkout -b gh-pages
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           git add -A
           git commit -m "Deploy from commit ${{ github.event.inputs.commit_id || github.sha }}"
           git push -f origin gh-pages
@@ -113,11 +118,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Git 설정
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global init.defaultBranch main
+
           # gh-pages 브랜치에 직접 푸시 (최신 커밋 기준)
           cd dist
           git init
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           git checkout -b gh-pages
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           git add -A
           git commit -m "Restore to latest commit ${{ github.sha }}"
           git push -f origin gh-pages
