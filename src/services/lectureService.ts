@@ -2,15 +2,30 @@ import axios from "axios";
 import { Lecture } from "../types.ts";
 
 /**
+ * Base URL을 가져옵니다.
+ * GitHub Pages 경로를 올바르게 처리하기 위해 현재 경로의 base를 추출합니다.
+ */
+const getBaseUrl = () => {
+  // window.location.pathname에서 base path 추출
+  // 예: '/front_7th_chapter4-2/' -> '/front_7th_chapter4-2'
+  const pathname = window.location.pathname;
+  // 루트 경로가 아닌 경우 base path 반환
+  if (pathname !== '/' && pathname.endsWith('/')) {
+    return pathname.slice(0, -1);
+  }
+  return pathname !== '/' ? pathname : '';
+};
+
+/**
  * 전공 강의 목록을 가져옵니다.
  */
-const fetchMajors = () => axios.get<Lecture[]>("/schedules-majors.json");
+const fetchMajors = () => axios.get<Lecture[]>(`${getBaseUrl()}/schedules-majors.json`);
 
 /**
  * 교양 강의 목록을 가져옵니다.
  */
 const fetchLiberalArts = () =>
-  axios.get<Lecture[]>("/schedules-liberal-arts.json");
+  axios.get<Lecture[]>(`${getBaseUrl()}/schedules-liberal-arts.json`);
 
 /**
  * 강의 데이터 캐시
