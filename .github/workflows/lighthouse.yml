@@ -265,18 +265,22 @@ jobs:
             const path = require('path');
             const { execSync } = require('child_process');
 
+            // 커밋 ID 및 메시지 추출
+            const commitId = context.eventName === 'workflow_dispatch' 
+              ? context.payload.inputs?.commit_id 
+              : null;
+            const inputCommitMessage = context.eventName === 'workflow_dispatch'
+              ? context.payload.inputs?.commit_message
+              : null;
+
             // 커밋 메시지에서 제목 추출
             let commitMessage;
             if (context.eventName === 'push') {
               commitMessage = context.payload.head_commit?.message || 'No commit message';
             } else if (context.eventName === 'workflow_dispatch') {
-              const commitId = context.payload.inputs?.commit_id;
-              const inputCommitMessage = context.payload.inputs?.commit_message;
-              
               if (commitId && !inputCommitMessage) {
                 // commit_id가 있고 커밋 메시지가 입력되지 않았으면 해당 커밋의 메시지 사용
                 try {
-                  const { execSync } = require('child_process');
                   // 짧은 SHA를 전체 SHA로 변환 (git rev-parse는 짧은 SHA도 지원)
                   const fullCommitId = execSync(`git rev-parse ${commitId}`, { encoding: 'utf8' }).trim();
                   commitMessage = execSync(`git log -1 --pretty=%B ${fullCommitId}`, { encoding: 'utf8' }).trim();
@@ -503,7 +507,6 @@ jobs:
             });
 
             // 커밋 정보 추가
-            const commitId = context.payload.inputs?.commit_id;
             let commitInfo = '';
             if (commitId) {
               try {
@@ -560,7 +563,6 @@ jobs:
 
             // Issue 제목: 커밋 메시지 제목 + 시간
             // workflow_dispatch에서 커밋 메시지가 입력되었거나 commit_id가 있는 경우 사용
-            const commitId = context.payload.inputs?.commit_id;
             let issueTitle;
             if (context.eventName === 'push') {
               issueTitle = `📊 ${commitTitle} - ${timeStr}`;
