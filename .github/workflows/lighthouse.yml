@@ -39,14 +39,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # 전체 히스토리를 가져와서 diff를 위해 필요
-          ref: ${{ github.event.inputs.commit_id || github.sha }}
 
       - name: Checkout specific commit
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.commit_id != ''
         run: |
           COMMIT_ID="${{ github.event.inputs.commit_id }}"
-          echo "Checking out commit: $COMMIT_ID"
-          git checkout $COMMIT_ID
+          echo "Input commit ID: $COMMIT_ID"
+
+          # 짧은 SHA를 전체 SHA로 변환 (git rev-parse는 짧은 SHA도 지원)
+          FULL_COMMIT_ID=$(git rev-parse "$COMMIT_ID" 2>/dev/null || echo "")
+          if [ -z "$FULL_COMMIT_ID" ]; then
+            echo "❌ Error: Commit '$COMMIT_ID' not found in repository"
+            exit 1
+          fi
+
+          echo "Full commit ID: $FULL_COMMIT_ID"
+          echo "Checking out commit: $FULL_COMMIT_ID"
+          git checkout $FULL_COMMIT_ID
           echo "Current commit: $(git rev-parse HEAD)"
           echo "Commit message: $(git log -1 --pretty=%B)"
 
@@ -139,14 +148,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # 전체 히스토리를 가져와서 diff를 위해 필요
-          ref: ${{ github.event.inputs.commit_id || github.sha }}
 
       - name: Checkout specific commit
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.commit_id != ''
         run: |
           COMMIT_ID="${{ github.event.inputs.commit_id }}"
-          echo "Checking out commit: $COMMIT_ID"
-          git checkout $COMMIT_ID
+          echo "Input commit ID: $COMMIT_ID"
+
+          # 짧은 SHA를 전체 SHA로 변환 (git rev-parse는 짧은 SHA도 지원)
+          FULL_COMMIT_ID=$(git rev-parse "$COMMIT_ID" 2>/dev/null || echo "")
+          if [ -z "$FULL_COMMIT_ID" ]; then
+            echo "❌ Error: Commit '$COMMIT_ID' not found in repository"
+            exit 1
+          fi
+
+          echo "Full commit ID: $FULL_COMMIT_ID"
+          echo "Checking out commit: $FULL_COMMIT_ID"
+          git checkout $FULL_COMMIT_ID
           echo "Current commit: $(git rev-parse HEAD)"
           echo "Commit message: $(git log -1 --pretty=%B)"
 
@@ -246,11 +264,17 @@ jobs:
           elif [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.commit_id }}" ]; then
             # workflow_dispatch + commit_id 입력: 해당 커밋과 이전 커밋 간의 diff
             COMMIT_ID="${{ github.event.inputs.commit_id }}"
-            PARENT_COMMIT=$(git rev-parse ${COMMIT_ID}^ 2>/dev/null || echo "")
-            if [ -n "$PARENT_COMMIT" ]; then
-              git diff ${PARENT_COMMIT}..${COMMIT_ID} > /tmp/changes.diff || echo "No changes" > /tmp/changes.diff
+            # 짧은 SHA를 전체 SHA로 변환
+            FULL_COMMIT_ID=$(git rev-parse "$COMMIT_ID" 2>/dev/null || echo "")
+            if [ -z "$FULL_COMMIT_ID" ]; then
+              echo "Error: Commit '$COMMIT_ID' not found" > /tmp/changes.diff
             else
-              echo "Initial commit or no parent commit" > /tmp/changes.diff
+              PARENT_COMMIT=$(git rev-parse ${FULL_COMMIT_ID}^ 2>/dev/null || echo "")
+              if [ -n "$PARENT_COMMIT" ]; then
+                git diff ${PARENT_COMMIT}..${FULL_COMMIT_ID} > /tmp/changes.diff || echo "No changes" > /tmp/changes.diff
+              else
+                echo "Initial commit or no parent commit" > /tmp/changes.diff
+              fi
             fi
           else
             # workflow_dispatch without commit_id: diff 없음
@@ -279,7 +303,9 @@ jobs:
                 // commit_id가 있고 커밋 메시지가 입력되지 않았으면 해당 커밋의 메시지 사용
                 try {
                   const { execSync } = require('child_process');
-                  commitMessage = execSync(`git log -1 --pretty=%B ${commitId}`, { encoding: 'utf8' }).trim();
+                  // 짧은 SHA를 전체 SHA로 변환 (git rev-parse는 짧은 SHA도 지원)
+                  const fullCommitId = execSync(`git rev-parse ${commitId}`, { encoding: 'utf8' }).trim();
+                  commitMessage = execSync(`git log -1 --pretty=%B ${fullCommitId}`, { encoding: 'utf8' }).trim();
                 } catch (e) {
                   commitMessage = `Commit ${commitId.substring(0, 7)}`;
                 }
@@ -506,9 +532,18 @@ jobs:
             const commitId = context.payload.inputs?.commit_id;
             let commitInfo = '';
             if (commitId) {
-              const shortCommitId = commitId.substring(0, 7);
-              const commitUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${commitId}`;
-              commitInfo = `\n### 📌 측정 기준 커밋\n- **커밋 ID**: [\`${shortCommitId}\`](${commitUrl})\n- **커밋 메시지**: ${commitTitle}\n\n`;
+              try {
+                // 짧은 SHA를 전체 SHA로 변환
+                const fullCommitId = execSync(`git rev-parse ${commitId}`, { encoding: 'utf8' }).trim();
+                const shortCommitId = fullCommitId.substring(0, 7);
+                const commitUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${fullCommitId}`;
+                commitInfo = `\n### 📌 측정 기준 커밋\n- **커밋 ID**: [\`${shortCommitId}\`](${commitUrl})\n- **커밋 메시지**: ${commitTitle}\n\n`;
+              } catch (e) {
+                // 변환 실패 시 원본 사용
+                const shortCommitId = commitId.substring(0, 7);
+                const commitUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${commitId}`;
+                commitInfo = `\n### 📌 측정 기준 커밋\n- **커밋 ID**: [\`${shortCommitId}\`](${commitUrl})\n- **커밋 메시지**: ${commitTitle}\n\n`;
+              }
             }
 
             const body = `## 🚨 웹사이트 성능 측정 결과
@@ -557,9 +592,16 @@ jobs:
               issueTitle = `📊 ${commitTitle} - ${timeStr}`;
             } else if (context.eventName === 'workflow_dispatch') {
               if (commitId) {
-                // commit_id가 있으면 커밋 정보 포함
-                const shortCommitId = commitId.substring(0, 7);
-                issueTitle = `📊 ${commitTitle} (${shortCommitId}) - ${timeStr}`;
+                // commit_id가 있으면 커밋 정보 포함 (짧은 SHA 사용)
+                try {
+                  const fullCommitId = execSync(`git rev-parse ${commitId}`, { encoding: 'utf8' }).trim();
+                  const shortCommitId = fullCommitId.substring(0, 7);
+                  issueTitle = `📊 ${commitTitle} (${shortCommitId}) - ${timeStr}`;
+                } catch (e) {
+                  // 변환 실패 시 원본 사용
+                  const shortCommitId = commitId.substring(0, 7);
+                  issueTitle = `📊 ${commitTitle} (${shortCommitId}) - ${timeStr}`;
+                }
               } else if (commitTitle !== 'Manual workflow run') {
                 issueTitle = `📊 ${commitTitle} - ${timeStr}`;
               } else {
