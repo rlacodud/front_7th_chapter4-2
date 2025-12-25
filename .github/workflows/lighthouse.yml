@@ -31,10 +31,6 @@ jobs:
     runs-on: ubuntu-latest
     # 커밋 메시지에 'perf'가 포함된 경우에만 실행
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'perf')
-    # environment를 제거하여 보호 규칙 우회 (GitHub 설정에서 환경 보호 규칙 수정하는 것을 권장)
-    # environment:
-    #   name: github-pages
-    #   url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,7 +42,7 @@ jobs:
           COMMIT_ID="${{ github.event.inputs.commit_id }}"
           echo "Input commit ID: $COMMIT_ID"
 
-          # 짧은 SHA를 전체 SHA로 변환 (git rev-parse는 짧은 SHA도 지원)
+          # 짧은 SHA를 전체 SHA로 변환
           FULL_COMMIT_ID=$(git rev-parse "$COMMIT_ID" 2>/dev/null || echo "")
           if [ -z "$FULL_COMMIT_ID" ]; then
             echo "❌ Error: Commit '$COMMIT_ID' not found in repository"
@@ -66,25 +62,24 @@ jobs:
 
       - name: Install dependencies & build app
         run: |
-          npm install -g pnpm gh-pages
+          npm install -g pnpm
           pnpm install --frozen-lockfile
           pnpm run build
-
-      - name: Configure Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Deploy to gh-pages branch
         id: deployment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # gh-pages 브랜치에 dist 폴더 배포
-          # Git 설정이 이미 되어 있으므로 -u 옵션 불필요
-          npx gh-pages -d dist \
-            --message "Deploy from commit ${{ github.event.inputs.commit_id || github.sha }}" \
-            --repo "https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          # gh-pages 브랜치에 직접 푸시 (gh-pages 패키지 대신 직접 git 사용)
+          cd dist
+          git init
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          git checkout -b gh-pages
+          git add -A
+          git commit -m "Deploy from commit ${{ github.event.inputs.commit_id || github.sha }}"
+          git push -f origin gh-pages
+
           echo "Deployed to gh-pages branch"
           # GitHub Pages URL 구성
           REPO_NAME="${{ github.event.repository.name }}"
@@ -97,10 +92,6 @@ jobs:
     needs: lighthouse-audit
     # workflow_dispatch에서 과거 커밋으로 배포한 경우에만 최신 커밋으로 복구
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.commit_id != ''
-    # environment를 제거하여 보호 규칙 우회 (GitHub 설정에서 환경 보호 규칙 수정하는 것을 권장)
-    # environment:
-    #   name: github-pages
-    #   url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -113,25 +104,24 @@ jobs:
 
       - name: Install dependencies & build app
         run: |
-          npm install -g pnpm gh-pages
+          npm install -g pnpm
           pnpm install --frozen-lockfile
           pnpm run build
-
-      - name: Configure Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Deploy to gh-pages branch (restore latest)
         id: deployment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # gh-pages 브랜치에 dist 폴더 배포 (최신 커밋 기준)
-          # Git 설정이 이미 되어 있으므로 -u 옵션 불필요
-          npx gh-pages -d dist \
-            --message "Restore to latest commit ${{ github.sha }}" \
-            --repo "https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          # gh-pages 브랜치에 직접 푸시 (최신 커밋 기준)
+          cd dist
+          git init
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          git checkout -b gh-pages
+          git add -A
+          git commit -m "Restore to latest commit ${{ github.sha }}"
+          git push -f origin gh-pages
+
           echo "Restored to latest commit on gh-pages branch"
           # GitHub Pages URL 구성
           REPO_NAME="${{ github.event.repository.name }}"
@@ -149,25 +139,6 @@ jobs:
         with:
           fetch-depth: 0 # 전체 히스토리를 가져와서 diff를 위해 필요
 
-      - name: Checkout specific commit
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.commit_id != ''
-        run: |
-          COMMIT_ID="${{ github.event.inputs.commit_id }}"
-          echo "Input commit ID: $COMMIT_ID"
-
-          # 짧은 SHA를 전체 SHA로 변환 (git rev-parse는 짧은 SHA도 지원)
-          FULL_COMMIT_ID=$(git rev-parse "$COMMIT_ID" 2>/dev/null || echo "")
-          if [ -z "$FULL_COMMIT_ID" ]; then
-            echo "❌ Error: Commit '$COMMIT_ID' not found in repository"
-            exit 1
-          fi
-
-          echo "Full commit ID: $FULL_COMMIT_ID"
-          echo "Checking out commit: $FULL_COMMIT_ID"
-          git checkout $FULL_COMMIT_ID
-          echo "Current commit: $(git rev-parse HEAD)"
-          echo "Commit message: $(git log -1 --pretty=%B)"
-
       - name: Use Node.js 20
         uses: actions/setup-node@v4
         with:
@@ -175,20 +146,13 @@ jobs:
 
       - name: Install Lighthouse CI
         run: |
-          npm install -g @lhci/cli@0.14.x pnpm
-
-      - name: Wait for deployment
-        run: |
-          echo "Waiting for GitHub Pages deployment to be ready..."
-          sleep 30
-          echo "Deployment should be ready now"
+          npm install -g @lhci/cli@0.14.x
 
       - name: Run Lighthouse CI
         id: lighthouse
         continue-on-error: true
         run: |
           # GitHub Pages URL 구성
-          # github.repository 형식: owner/repo-name
           REPO_NAME="${{ github.event.repository.name }}"
           GITHUB_PAGES_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/"
 
