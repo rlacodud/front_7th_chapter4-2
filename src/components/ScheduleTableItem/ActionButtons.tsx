@@ -21,16 +21,28 @@ export const ActionButtons = ({
   return (
     <ButtonGroup size="sm" isAttached>
       <Button
-        colorScheme="green"
+        colorScheme="blackAlpha"
+        bg="blackAlpha.900"
+        color="white"
+        _hover={{ bg: "blackAlpha.800" }}
         onClick={() => onSearchInfoChange(tableId)}
       >
         시간표 추가
       </Button>
-      <Button colorScheme="green" mx="1px" onClick={() => onDuplicate(tableId)}>
+      <Button
+        colorScheme="blackAlpha"
+        bg="blackAlpha.900"
+        color="white"
+        _hover={{ bg: "blackAlpha.800" }}
+        mx="1px"
+        onClick={() => onDuplicate(tableId)}
+      >
         복제
       </Button>
       <Button
-        colorScheme="green"
+        colorScheme="blackAlpha"
+        bg="blackAlpha.900"
+        color="white"
         isDisabled={disabledRemoveButton}
         onClick={() => onRemove(tableId)}
       >
@@ -39,4 +51,3 @@ export const ActionButtons = ({
     </ButtonGroup>
   );
 };
-

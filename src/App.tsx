@@ -7,7 +7,9 @@ function App() {
   return (
     <ChakraProvider>
       <ScheduleProvider>
-        <ScheduleTables/>
+        <main>
+          <ScheduleTables/>
+        </main>
       </ScheduleProvider>
     </ChakraProvider>
   );

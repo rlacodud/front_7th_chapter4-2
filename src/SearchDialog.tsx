@@ -368,7 +368,10 @@ const SearchDialog = ({ searchInfo, onClose }: Props) => {
                         <Td width="80px">
                           <Button
                             size="sm"
-                            colorScheme="green"
+                            colorScheme="blackAlpha"
+                            bg="blackAlpha.900"
+                            color="white"
+                            _hover={{ bg: "blackAlpha.800" }}
                             onClick={() => addSchedule(lecture)}
                           >
                             추가
